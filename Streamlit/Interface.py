@@ -1,72 +1,93 @@
 import streamlit as st
 import pandas as pd
-from Simplex import SimplexSolver
+from simplex import solve_simplex
 
-def main():
-    st.title("Resolução de Problemas de Programação Linear usando Simplex")
+# Configuração inicial do Streamlit
+st.set_page_config(page_title="Resolução de PPL com Simplex", page_icon="📊", layout="wide")
+st.title("📊 Resolução de PPL com Simplex e Pós-Otimização")
+st.markdown("---")
 
-    if "solver" not in st.session_state:
-        st.session_state.solver = None
-        st.session_state.solution = None
-        st.session_state.optimal_value = None
-        st.session_state.shadow_prices = None
-        st.session_state.b = None
+# Entrada da função objetivo
+st.subheader("1️⃣ Configuração da Função Objetivo")
+with st.container():
+    # Configuração do número de variáveis
+    num_variables = st.number_input("Número de variáveis:", min_value=2, max_value=5, step=1, value=3, help="Escolha o número de variáveis na função objetivo.")
+    objective = []
+    cols = st.columns(num_variables)
+    for i, col in enumerate(cols):
+        # Coletar os coeficientes da função objetivo
+        coef = col.number_input(f"Coeficiente de x{i+1}:", value=0.0, key=f"objective_coef_{i}")
+        objective.append(coef)
 
-    st.markdown("**Número de variáveis (produtos)**")
-    num_vars = st.number_input("Insira o número de variáveis", min_value=1, value=3)
+# Entrada das restrições
+st.subheader("2️⃣ Configuração das Restrições")
+with st.container():
+    # Configuração do número de restrições
+    num_constraints = st.number_input("Número de restrições:", min_value=1, max_value=5, step=1, value=2, help="Quantas restrições deseja adicionar?")
+    constraints = []
+    for i in range(num_constraints):
+        st.markdown(f"**Restrição {i+1}**")
+        cols = st.columns(num_variables + 1)
+        # Coletar os coeficientes das variáveis e o limite da restrição
+        coeffs = [cols[j].number_input(f"x{j+1} (Restrição {i+1})", value=0.0, key=f"constraint_{i}_var_{j}") for j in range(num_variables)]
+        const = cols[-1].number_input(f"≤ Constante (Restrição {i+1})", value=0.0, key=f"constraint_const_{i}")
+        constraints.append((coeffs, const))
 
-    st.markdown("**Número de restrições**")
-    num_constraints = st.number_input("Insira o número de restrições", min_value=1, value=2)
+# Entrada das alterações propostas para pós-otimização
+st.subheader("3️⃣ Alterações Propostas (Pós-Otimização)")
+with st.container():
+    changes = []
+    for i in range(num_constraints):
+        # Coletar as alterações propostas nas restrições
+        change = st.number_input(f"Alteração na restrição {i+1}:", value=0.0, key=f"change_{i}")
+        changes.append(change)
 
-    st.markdown("**Coeficientes da Função Objetivo**")
-    c = [st.number_input(f"Coeficiente x{i + 1}", value=1.0, key=f"c_{i}") for i in range(num_vars)]
+# Resolver o problema ao clicar no botão
+if st.button("🚀 Resolver PPL"):
+    # Chamar a função do Simplex para resolver o problema
+    solution, objective_value, new_objective_value, shadow_prices, feasibility = solve_simplex(objective, constraints, changes)
 
-    A = []
-    b = []
-    st.markdown("**Defina as Restrições**")
-    for j in range(num_constraints):
-        st.markdown(f"**Restrição {j + 1}**")
-        row = [st.number_input(f"Coeficiente x{i + 1} para restrição {j + 1}", value=1.0, key=f"A_{j}_{i}") for i in range(num_vars)]
-        A.append(row)
-        rhs = st.number_input(f"Valor à direita da restrição {j + 1} (≤)", value=10.0, key=f"b_{j}")
-        b.append(rhs)
+    # Exibir os resultados da otimização
+    st.markdown("### 🟢 Resultados da Otimização")
+    
+    # Exibir o valor original da função objetivo
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Valor Original de Z (Função Objetivo)", f"R$ {objective_value:.2f}")
+        
+    # Exibir a solução ótima
+    st.markdown("#### **Solução Ótima:**")
+    solution_df = pd.DataFrame(solution.items(), columns=["Variável", "Valor"])
+    st.table(solution_df)
 
-    if st.button("Resolver"):
-        solver = SimplexSolver(c, A, b)
-        solution, optimal_value, shadow_prices = solver.solve()
+    # Exibir os preços sombra das restrições
+    st.markdown("### 🟡 Preços Sombra")
+    shadow_prices_df = pd.DataFrame(shadow_prices.items(), columns=["Restrição", "Preço Sombra (R$)"])
+    st.table(shadow_prices_df)
 
-        st.session_state.solver = solver
-        st.session_state.solution = solution
-        st.session_state.optimal_value = optimal_value
-        st.session_state.shadow_prices = shadow_prices
-        st.session_state.b = b
+    st.markdown("---")
+    st.markdown("### 🔵 Pós-Otimização")
+    st.metric("Novo Valor de Z (Após Alterações)", f"R$ {new_objective_value:.2f}")
 
-    if st.session_state.solution is not None:
-        st.success("Solução encontrada!")
-        st.write("Valores das variáveis:")
-        for i, val in enumerate(st.session_state.solution):
-            st.write(f"x{i + 1} = {val:.2f}")
-        st.write(f"Lucro máximo: {st.session_state.optimal_value:.2f}")
 
-        shadow_df = pd.DataFrame({
-            'Restrição': [f"Restrição {i + 1}" for i in range(len(st.session_state.shadow_prices))],
-            'Preço-Sombra': st.session_state.shadow_prices
-        })
-        st.table(shadow_df)
+    # Exibir a viabilidade das alterações propostas
+    feasibility_df = pd.DataFrame(
+        {
+            "Restrição": list(feasibility.keys()),
+            "Viabilidade": ["Viável" if val >= 0 else "Não Viável" for val in feasibility.values()],
+        }
+    )
+    st.markdown("#### **Viabilidade das Alterações Propostas:**")
+    st.table(feasibility_df)
+        # Calcular a diferença entre o valor original e o novo valor de Z
+    delta_z = new_objective_value - objective_value
 
-        st.subheader("Análise de Vulnerabilidade")
-        if st.checkbox("Deseja realizar a análise de vulnerabilidade?"):
-            new_b = [st.number_input(f"Novo valor para Restrição {j + 1}", value=st.session_state.b[j], key=f"new_b_{j}") for j in range(len(st.session_state.b))]
-            
-            try:
-                profit_change = st.session_state.solver.calculate_profit_change(st.session_state.shadow_prices, new_b)
-                new_optimal_value = st.session_state.optimal_value + profit_change
+    # Exibir a mudança no lucro
+    st.markdown("### 📊 Comparação do Lucro")
+    if delta_z > 0:
+        st.success(f"O lucro subiu em R$ {delta_z:.2f}")
+    elif delta_z < 0:
+        st.error(f"O lucro diminuiu em R$ {abs(delta_z):.2f}")
+    else:
+        st.info("O lucro permaneceu igual.")
 
-                st.success("Alterações viáveis!")
-                st.write(f"Impacto no lucro: {profit_change:.2f}")
-                st.write(f"Novo lucro máximo: {new_optimal_value:.2f}")
-            except Exception as e:
-                st.error(f"Erro: {e}")
-
-if __name__ == "__main__":
-    main()
