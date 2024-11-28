@@ -1,44 +1,40 @@
-import pulp
+from pulp import LpProblem, LpMaximize, LpVariable, value
 
-class SimplexSolver:
-    def __init__(self, c, A, b):
-        self.c = c
-        self.A = A
-        self.b = b
-        self.initial_b = b[:]  # Armazena os valores iniciais de b
+def solve_simplex(objective, constraints, changes):
 
-    def solve(self):
-        # Definir o problema de maximização
-        problem = pulp.LpProblem("Problema_Simplex", pulp.LpMaximize)
+    # Criar o problema de maximização
+    problem = LpProblem("Problema_PPL", LpMaximize)
 
-        # Criar variáveis de decisão
-        num_vars = len(self.c)
-        vars = [pulp.LpVariable(f"x{i+1}", lowBound=0) for i in range(num_vars)]
+    # Criar variáveis de decisão com limite inferior de 0
+    variables = {f"x{i+1}": LpVariable(f"x{i+1}", lowBound=0) for i in range(len(objective))}
 
-        # Definir a função objetivo
-        problem += pulp.lpDot(self.c, vars), "Função Objetivo"
+    # Adicionar a função objetivo ao problema
+    problem += sum(objective[i] * variables[f"x{i+1}"] for i in range(len(objective)))
 
-        # Adicionar as restrições
-        for i in range(len(self.A)):
-            problem += (pulp.lpDot(self.A[i], vars) <= self.b[i]), f"Restrição_{i+1}"
+    # Adicionar as restrições ao problema
+    for idx, (coeffs, const) in enumerate(constraints):
+        problem += sum(coeffs[i] * variables[f"x{i+1}"] for i in range(len(coeffs))) <= const, f"Restrição_{idx+1}"
 
-        # Resolver o problema usando o método Simplex
-        problem.solve()
+    # Resolver o problema
+    problem.solve()
 
-        # Obter os valores das variáveis e o valor ótimo
-        solution = [v.varValue for v in vars]
-        optimal_value = pulp.value(problem.objective)
+    # Capturar a solução ótima (valores das variáveis)
+    solution = {var.name: var.varValue for var in problem.variables()}
 
-        # Extrair os preços-sombra (dual values)
-        shadow_prices = [constraint.pi for name, constraint in problem.constraints.items()]
+    # Capturar o valor da função objetivo original
+    objective_value = value(problem.objective)
 
-        return solution, optimal_value, shadow_prices
+    # Capturar os preços sombra de cada restrição
+    shadow_prices = {f"Restrição_{i+1}": problem.constraints[f"Restrição_{i+1}"].pi for i in range(len(constraints))}
 
-    def calculate_profit_change(self, shadow_prices, new_b):
-        """
-        Calcula o impacto no lucro considerando os novos valores das restrições.
-        Usa os preços-sombra para calcular o impacto no lucro.
-        """
-        delta_b = [new_b[i] - self.initial_b[i] for i in range(len(new_b))]
-        profit_change = sum(shadow_prices[i] * delta_b[i] for i in range(len(delta_b)))
-        return profit_change
+    # Calcular a viabilidade das alterações nas restrições
+    feasibility = {
+        f"Restrição_{i+1}": shadow_prices[f"Restrição_{i+1}"] * changes[i] + constraints[i][1]
+        for i in range(len(constraints))
+    }
+
+    # Calcular o novo valor da função objetivo com as alterações propostas
+    delta_z = sum(shadow_prices[f"Restrição_{i+1}"] * changes[i] for i in range(len(constraints)))
+    new_objective_value = objective_value + delta_z
+
+    return solution, objective_value, new_objective_value, shadow_prices, feasibility
